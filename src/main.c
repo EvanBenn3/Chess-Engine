@@ -446,6 +446,321 @@ void generatePseudoWhiteMoves(Board board, Move* moveList, int* movelistCounter)
 
 }
 
+void generatePseudoBlackMoves(Board board, Move* moveList, int* movelistCounter) {
+    Board temp = board;
+    u64 blockMapWhite;
+    u64 blockMapBlack;
+    u64 blockMap;
+
+    u8 pawnList[8];
+    int pawnListSize = 0;
+    u8 knightList[10];
+    int knightListSize = 0;
+    u8 bishopList[10];
+    int bishopListSize = 0;
+    u8 rookList[10];
+    int rookListSize = 0;
+    u8 queenList[9];
+    int queenListSize = 0;
+    u8 kingpos;
+
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackPawns >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackPawns >> i*8+j) & 0x1) == 1) {
+                    temp.blackPawns &= ~(1ULL << i*8+j);
+                    pawnList[pawnListSize++] = i*8+j;
+                }
+            }
+        }
+    }
+    
+    blockCheckWhite(board, &blockMapWhite);
+    blockCheckBlack(board, &blockMapBlack);
+    blockMap = blockMapWhite | blockMapBlack;
+
+    if (board.enPassantSquare != 0xff) {
+        blockMapWhite |= (1ULL << board.enPassantSquare);
+    }
+    
+    for (int i = 0; i < pawnListSize; i++) {
+        u8 src = pawnList[i];
+        if (((1ULL << (src - 8)) & blockMap) == 0) {
+            addMove(moveList, movelistCounter, src-8, src, 0, false);
+        }
+        if (((((1ULL << (src - 16)) | (1ULL << (src - 8))) & blockMap) == 0) /*&& ((src / 8) == 6)*/) {
+            addMove(moveList, movelistCounter, src-16, src, 0, false);
+        }
+        if ((src & 0x7) != 0) {
+            if ((1ULL << (src - 9)) & blockMapWhite) {
+                addMove(moveList, movelistCounter, src-7, src, 0, true);
+            }
+        }
+        if ((src & 0x7) != 0x7) {
+            if ((1ULL << (src - 7)) & blockMapWhite) {
+                addMove(moveList, movelistCounter, src-9, src, 0, true);
+            }
+        }
+    }
+
+    if (board.enPassantSquare != 0xff) {
+        blockMapWhite &= ~(1ULL << board.enPassantSquare);
+    }
+
+    pawnListSize = *movelistCounter;
+    for (int i = 0; i < pawnListSize; i++) {
+        if ((moveList[i].to / 8) == 0) {
+            moveList[i].prom = 'Q';
+            
+            addMove(moveList, movelistCounter, moveList[i].to, moveList[i].from, 'R', moveList[i].isCapture);
+            addMove(moveList, movelistCounter, moveList[i].to, moveList[i].from, 'B', moveList[i].isCapture);
+            addMove(moveList, movelistCounter, moveList[i].to, moveList[i].from, 'N', moveList[i].isCapture);
+        }
+    }
+
+    temp = board;
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackKnights >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackKnights >> i*8+j) & 0x1) == 1) {
+                    temp.blackKnights &= ~(1ULL << i*8+j);
+                    knightList[knightListSize++] = i*8+j;
+                }
+            }
+        }
+    }
+
+    char knightMoveset[8] = {17, 15, 10, -6, -15, -17, -10, 6};
+    for (int i = 0; i < knightListSize; i++) {
+        u8 src = knightList[i];
+        u8 col = src & 0x7;
+        u8 row = src / 8;
+        for (int j = 0; j < 8; j++) {
+            u8 dest = src + knightMoveset[j];
+            u8 destcol = dest & 0x7;
+            u8 destrow = dest / 8;
+            char diffcol = my_abs(destcol - col);
+            char diffrow = my_abs(destrow - row);
+            if (dest < 64) {
+                if ((diffcol <= 2) && (diffrow <= 2)) {
+                    if ((blockMapBlack & (1ULL << dest)) == 0) {
+                        if ((blockMapWhite & (1ULL << dest)) == 0) {
+                            addMove(moveList, movelistCounter, dest, src, 0, false);
+                        } else {
+                            addMove(moveList, movelistCounter, dest, src, 0, true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    temp = board;
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackBishops >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackBishops >> i*8+j) & 0x1) == 1) {
+                    temp.blackBishops &= ~(1ULL << i*8+j);
+                    bishopList[bishopListSize++] = i*8+j;
+                }
+            }
+        }
+    }
+
+    char bishopMoveset[4] = {7, 9, -7, -9};
+    for (int i = 0; i < bishopListSize; i++) {
+        u8 src = bishopList[i];
+        for (int j = 0; j < 4; j++) {
+            bool run = true;
+            u8 dest = src;
+            while (run) {
+                u8 col = src & 0x7;
+                u8 row = src / 8;
+                dest += bishopMoveset[j];
+                col = dest & 0x7;
+                row = dest / 8;
+                int srcRow = (dest - bishopMoveset[j]) / 8;
+                int srcCol = (dest - bishopMoveset[j]) % 8;
+                if (my_abs(col - srcCol) > 1) {
+                    run = false;
+                    break;
+                }
+                if (my_abs(row - srcRow) > 1) {
+                    run = false;
+                    break;
+                }
+                if (dest < 0 || dest >= 64) {
+                    run = false;
+                    break;
+                }
+                if ((row == 0) || (row == 7) || (col == 0) || (col == 7)) {
+                    run = false;
+                }
+                if ((blockMap & (1ULL << dest)) > 0) {
+                    run = false;
+                    if ((blockMapWhite & (1ULL << dest)) > 0) {
+                        addMove(moveList, movelistCounter, dest, src, 0, true);
+                    }
+                } else {
+                    addMove(moveList, movelistCounter, dest, src, 0, false);
+                }
+            }
+        }
+    }
+
+    temp = board;
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackRooks >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackRooks >> i*8+j) & 0x1) == 1) {
+                    temp.blackRooks &= ~(1ULL << i*8+j);
+                    rookList[rookListSize++] = i*8+j;
+                }
+            }
+        }
+    }
+
+    char rookMoveset[4] = {8, 1, -8, -1};
+    for (int i = 0; i < rookListSize; i++) {
+        u8 src = rookList[i];
+        for (int j = 0; j < 4; j++) {
+            bool run = true;
+            u8 dest = src;
+            while (run) {
+                u8 col = src & 0x7;
+                u8 row = src / 8;
+                dest += rookMoveset[j];
+                col = dest & 0x7;
+                row = dest / 8;
+                int srcRow = (dest - rookMoveset[j]) / 8;
+                int srcCol = (dest - rookMoveset[j]) % 8;
+                if (my_abs(col - srcCol) > 1) {
+                    run = false;
+                    break;
+                }
+                if (my_abs(row - srcRow) > 1) {
+                    run = false;
+                    break;
+                }
+                if (dest < 0 || dest >= 64) {
+                    run = false;
+                    break;
+                }
+                if ((blockMap & (1ULL << dest)) > 0) {
+                    run = false;
+                    if ((blockMapWhite & (1ULL << dest)) > 0) {
+                        addMove(moveList, movelistCounter, dest, src, 0, true);
+                    }
+                } else {
+                    addMove(moveList, movelistCounter, dest, src, 0, false);
+                }
+            }
+        }
+    }
+
+    temp = board;
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackQueens >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackQueens >> i*8+j) & 0x1) == 1) {
+                    temp.blackQueens &= ~(1ULL << i*8+j);
+                    queenList[queenListSize++] = i*8+j;
+                }
+            }
+        }
+    }
+
+    char queenMoveset[8] = {8, 1, -8, -1, 9, 7, -9, -7};
+    for (int i = 0; i < queenListSize; i++) {
+        u8 src = queenList[i];
+        for (int j = 0; j < 8; j++) {
+            bool run = true;
+            u8 dest = src;
+            while (run) {
+                u8 col = src & 0x7;
+                u8 row = src / 8;
+                dest += queenMoveset[j];
+                col = dest & 0x7;
+                row = dest / 8;
+                int srcRow = (dest - queenMoveset[j]) / 8;
+                int srcCol = (dest - queenMoveset[j]) % 8;
+                if (my_abs(col - srcCol) > 1) {
+                    run = false;
+                    break;
+                }
+                if (my_abs(row - srcRow) > 1) {
+                    run = false;
+                    break;
+                }
+                if (dest < 0 || dest >= 64) {
+                    run = false;
+                    break;
+                }
+                if ((blockMap & (1ULL << dest)) > 0) {
+                    run = false;
+                    if ((blockMapWhite & (1ULL << dest)) > 0) {
+                        addMove(moveList, movelistCounter, dest, src, 0, true);
+                    }
+                } else {
+                    addMove(moveList, movelistCounter, dest, src, 0, false);
+                }
+            }
+        }
+    }
+
+    temp = board;
+    for (int i = 0; i < 8; i++) {
+        if (((temp.blackKing >> i*8) & 0xff) > 0) {
+            for (int j = 0; j < 8; j++) {
+                if (((temp.blackKing >> i*8+j) & 0x1) == 1) {
+                    temp.blackKing &= ~(1ULL << i*8+j);
+                    kingpos = i*8+j;
+                    break;
+                }
+            }
+        }
+    }
+
+    char kingMoveset[8] = {8, 1, -8, -1, 9, 7, -9, -7};
+    for (int i = 0; i < 8; i++) {
+        u8 col = kingpos & 0x7;
+        u8 row = kingpos / 8;
+        u8 dest = kingpos + kingMoveset[i];
+        col = dest & 0x7;
+        row = dest / 8;
+        int srcRow = (dest - kingMoveset[i]) / 8;
+        int srcCol = (dest - kingMoveset[i]) % 8;
+        if (my_abs(col - srcCol) > 1) {
+            continue;
+        }
+        if (my_abs(row - srcRow) > 1) {
+            continue;
+        }
+        if (dest < 0 || dest >= 64) {
+            continue;
+        }
+        if ((blockMap & (1ULL << dest)) > 0) {
+            if ((blockMapWhite & (1ULL << dest)) > 0) {
+                addMove(moveList, movelistCounter, dest, kingpos, 0, true);
+            }
+        } else {
+            addMove(moveList, movelistCounter, dest, kingpos, 0, false);
+        }
+    }
+
+    if (board.castelingRights & 0b0010) {
+        if ((blockMap & ((1ULL << 61) | (1ULL << 62))) == 0) {
+            addMove(moveList, movelistCounter, 62, 60, 0, false);
+        }
+    }
+    if (board.castelingRights & 0b0001) {
+        if ((blockMap & ((1ULL << 57) | (1ULL << 58) | (1ULL << 59))) == 0) {
+            addMove(moveList, movelistCounter, 58, 60, 0, false);
+        }
+    }
+
+}
+
 void generateMoves(Board board, Move* moveList, int* movelistCounter) {
     
 }
@@ -558,10 +873,10 @@ int main () {
     int moveListCounter = 0;
 
     Board board;
-    char FENstring[128] = "r2qk2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b kq - 0 1";
+    char FENstring[128] = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R b kq - 0 1";
     FENtoBit(&board, FENstring);
     
-    generatePseudoWhiteMoves(board, movelist, &moveListCounter);
+    generatePseudoBlackMoves(board, movelist, &moveListCounter);
     for (int i = 0; i < moveListCounter; i++) {
         printf("%d, %d\n", movelist[i].from, movelist[i].to);
     }
